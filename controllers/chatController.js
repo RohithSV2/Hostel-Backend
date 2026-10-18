@@ -1,55 +1,88 @@
 const { Message, User } = require('../models');
 const { Op } = require('sequelize');
+const { getIO } = require('../utils/socket');
 
-// Get messages for General Chat (receiverId is null)
+// @desc    Get all General Community chat messages
+// @route   GET /api/chat/general
 exports.getGeneralChat = async (req, res) => {
   try {
     const messages = await Message.findAll({
       where: { receiverId: null },
-      include: [{ model: User, as: 'Sender', attributes: ['id', 'name', 'role'] }],
-      order: [['createdAt', 'ASC']]
+      include: [{ model: User, as: 'Sender', attributes: ['id', 'name', 'roomNumber', 'role'] }],
+      order: [['createdAt', 'ASC']],
+      limit: 100
     });
     res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error('Error fetching general chat:', error);
+    res.status(500).json({ error: error.message });
   }
 };
 
-// Send a message (DM or General)
+// @desc    Get all DMs for a user
+// @route   GET /api/chat/dms/:userId
+exports.getMyDMs = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId || req.user?.id);
+    if (!userId) return res.status(400).json({ message: 'User ID required' });
+
+    const messages = await Message.findAll({
+      where: {
+        [Op.or]: [
+          { senderId: userId },
+          { receiverId: userId }
+        ]
+      },
+      include: [
+        { model: User, as: 'Sender', attributes: ['id', 'name', 'roomNumber'] },
+        { model: User, as: 'Receiver', attributes: ['id', 'name', 'roomNumber'] }
+      ],
+      order: [['createdAt', 'ASC']]
+    });
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error fetching DMs:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// @desc    Send a message (General or DM or Notice)
+// @route   POST /api/chat/send
 exports.sendMessage = async (req, res) => {
   try {
     const { content, senderId, receiverId, isNotice } = req.body;
-    const msg = await Message.create({ content, senderId, receiverId, isNotice });
-    
-    // Fetch it back with Sender info to update UI instantly
-    const fullMsg = await Message.findByPk(msg.id, {
-      include: [{ model: User, as: 'Sender', attributes: ['id', 'name', 'role'] }]
-    });
-    
-    res.json(fullMsg);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+    const actualSenderId = senderId || req.user?.id;
 
-// Get DMs for a specific user
-exports.getMyDMs = async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    // Find all messages where user is sender OR receiver
-    const messages = await Message.findAll({
-      where: { 
-        [Op.or]: [{ senderId: userId }, { receiverId: userId }],
-        receiverId: { [Op.ne]: null } // Exclude general chat
-      },
-      include: [
-        { model: User, as: 'Sender', attributes: ['id', 'name', 'profileImage'] },
-        { model: User, as: 'Receiver', attributes: ['id', 'name', 'profileImage'] }
-      ],
-      order: [['createdAt', 'DESC']]
+    if (!content || !actualSenderId) {
+      return res.status(400).json({ message: 'Content and sender ID are required' });
+    }
+
+    const message = await Message.create({
+      content,
+      senderId: actualSenderId,
+      receiverId: receiverId ? parseInt(receiverId) : null,
+      isNotice: !!isNotice
     });
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+    const fullMessage = await Message.findByPk(message.id, {
+      include: [
+        { model: User, as: 'Sender', attributes: ['id', 'name', 'roomNumber', 'role'] },
+        { model: User, as: 'Receiver', attributes: ['id', 'name', 'roomNumber'] }
+      ]
+    });
+
+    // Real-time broadcast
+    if (receiverId) {
+      getIO().emit(`dm_${receiverId}`, fullMessage);
+      getIO().emit(`dm_${actualSenderId}`, fullMessage);
+    } else {
+      getIO().emit('general_message', fullMessage);
+    }
+
+    res.status(201).json(fullMessage);
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: error.message });
   }
 };

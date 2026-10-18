@@ -1,9 +1,10 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const { sequelize } = require('./models'); // <--- We import the DB connection from our new index file
-const { Server } = require('socket.io');
 const http = require('http');
+const path = require('path');
+const { sequelize } = require('./models');
+const socketUtil = require('./utils/socket');
 
 // Load Environment Variables
 dotenv.config();
@@ -11,55 +12,75 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+// Initialize Socket.io
+socketUtil.init(server);
 
-// --- ROUTES ---
+// Middleware
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve Uploaded static files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- MOUNT ROUTES ---
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/rooms', require('./routes/roomRoutes'));
 app.use('/api/complaints', require('./routes/complaintRoutes'));
-// app.use('/api/student', require('./routes/studentRoutes')); // Add this when you create the file
-// app.use('/api/chat', require('./routes/chatRoutes')); // Add this when you create the file
-
-//  latest
-app.use('/api/complaints', require('./routes/complaintRoutes'));
-
-// UNCOMMENT THIS LINE:
-app.use('/api/chat', require('./routes/chatRoutes'));
+app.use('/api/gatepass', require('./routes/gatePassRoutes'));
 app.use('/api/mess', require('./routes/messRoutes'));
+app.use('/api/chat', require('./routes/chatRoutes'));
+app.use('/api/lostfound', require('./routes/lostFoundRoutes'));
+app.use('/api/student', require('./routes/studentRoutes'));
 
-//latest
-
-// Simple Test Route
+// Test / Health Route
 app.get('/', (req, res) => {
-  res.send('Hostel Backend is Running!');
+  res.json({
+    status: 'online',
+    message: 'HostelMate Advanced Management API is Running!',
+    timestamp: new Date().toISOString(),
+    version: '2.0.0'
+  });
 });
 
-// --- SOCKET.IO SETUP ---
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-  }
-});
-
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled Server Error:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message
   });
 });
 
 // --- SERVER START ---
 const PORT = process.env.PORT || 5000;
 
-// We use 'sequelize.sync' here. The relationships are already handled inside ./models/index.js
-sequelize.sync({ alter: true }) 
-  .then(() => {
-    console.log('✅ Database & Tables Synced (Schema Updated)');
-    server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-  })
-  .catch(err => console.log('❌ Database Error:', err));
+sequelize.sync()
+  .then(async () => {
+    console.log('✅ SQLite Database & Tables Synced');
 
-  
+    // Auto-seed if database is fresh (crucial for Render deployments)
+    try {
+      const userCount = await User.count();
+      if (userCount === 0) {
+        console.log('🌱 Fresh database detected. Auto-seeding initial records...');
+        const seed = require('./seed');
+        await seed();
+      }
+    } catch (seedErr) {
+      console.warn('⚠️ Auto-seed note:', seedErr.message);
+    }
+
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 HostelMate Backend listening on port ${PORT}`);
+      console.log(`📡 Local address: http://localhost:${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('❌ Database Sync Error:', err);
+  });

@@ -35,7 +35,22 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true
   },
-  phone: { type: DataTypes.STRING, allowNull: true },
+  block: {
+    type: DataTypes.STRING,
+    defaultValue: 'A-Block'
+  },
+  bedId: {
+    type: DataTypes.STRING,
+    defaultValue: 'A'
+  },
+  course: {
+    type: DataTypes.STRING,
+    defaultValue: 'B.Tech - Computer Science'
+  },
+  phone: { 
+    type: DataTypes.STRING, 
+    allowNull: true 
+  },
   guardianName: {
     type: DataTypes.STRING,
     allowNull: true
@@ -44,10 +59,21 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true
   },
-  bloodGroup: { type: DataTypes.STRING, allowNull: true },
+  bloodGroup: { 
+    type: DataTypes.STRING, 
+    allowNull: true 
+  },
   profileImage: {
     type: DataTypes.STRING, // URL to image
     allowNull: true
+  },
+  feesPending: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  checkInStatus: {
+    type: DataTypes.STRING,
+    defaultValue: 'In Campus' // 'In Campus' | 'Out of Campus' | 'On Leave'
   }
 });
 
