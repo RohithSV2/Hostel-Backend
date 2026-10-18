@@ -3,7 +3,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const path = require('path');
-const { sequelize } = require('./models');
+const { sequelize, User } = require('./models');
 const socketUtil = require('./utils/socket');
 
 // Load Environment Variables
@@ -46,6 +46,17 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '2.0.0'
   });
+});
+
+// Database Seed Endpoint (Easy initial population on cloud deployments)
+app.get('/api/seed', async (req, res) => {
+  try {
+    const seed = require('./seed');
+    await seed();
+    res.json({ success: true, message: 'Database successfully seeded with demo accounts, rooms and menus!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Global Error Handler
